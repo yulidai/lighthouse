@@ -549,7 +549,7 @@ impl SimpleSync {
         block: BeaconBlock,
         network: &mut NetworkContext,
     ) -> bool {
-        debug!(
+        trace!(
             self.log,
             "NewGossipBlock";
             "peer" => format!("{:?}", peer_id),
@@ -652,9 +652,7 @@ impl SimpleSync {
                 } else if outcome.sucessfully_processed() {
                     // The block was valid and we processed it successfully.
                     info!(
-                        self.log, "NewGossipBlock";
-                        "msg" => "block import successful",
-                        "peer" => format!("{:?}", peer_id),
+                        self.log, "Imported new block";
                     );
                     // Forward the block to peers
                     true
@@ -695,7 +693,7 @@ impl SimpleSync {
         msg: Attestation,
         _network: &mut NetworkContext,
     ) {
-        info!(
+        debug!(
             self.log,
             "NewAttestationGossip";
             "peer" => format!("{:?}", peer_id),
