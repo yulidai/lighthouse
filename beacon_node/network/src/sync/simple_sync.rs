@@ -4,7 +4,7 @@ use crate::message_handler::NetworkContext;
 use eth2_libp2p::rpc::methods::*;
 use eth2_libp2p::rpc::{RPCRequest, RPCResponse, RequestId};
 use eth2_libp2p::PeerId;
-use slog::{debug, error, info, o, warn};
+use slog::{debug, error, info, o, trace, warn};
 use ssz::TreeHash;
 use std::collections::HashMap;
 use std::sync::Arc;
