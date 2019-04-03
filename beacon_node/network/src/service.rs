@@ -4,6 +4,7 @@ use crate::message_handler::{HandlerMessage, MessageHandler};
 use crate::NetworkConfig;
 use crossbeam_channel::{unbounded as channel, Sender, TryRecvError};
 use eth2_libp2p::Service as LibP2PService;
+use eth2_libp2p::Topic;
 use eth2_libp2p::{Libp2pEvent, PeerId};
 use eth2_libp2p::{PubsubMessage, RPCEvent};
 use futures::prelude::*;
@@ -12,7 +13,6 @@ use futures::Stream;
 use slog::{debug, info, o, trace};
 use std::sync::Arc;
 use tokio::runtime::TaskExecutor;
-use types::Topic;
 
 /// Service that handles communication between internal services and the eth2_libp2p network service.
 pub struct Service {

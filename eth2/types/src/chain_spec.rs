@@ -118,10 +118,7 @@ pub struct ChainSpec {
     /*
      * Network specific parameters
      */
-    pub boot_nodes: Vec<Multiaddr>,
     pub chain_id: u8,
-    pub beacon_chain_topic: String,
-    pub shard_topic_prefix: String,
 }
 
 impl ChainSpec {
@@ -257,10 +254,7 @@ impl ChainSpec {
             /*
              * Network specific
              */
-            boot_nodes: vec![],
             chain_id: 1, // foundation chain id
-            beacon_chain_topic: String::from("beacon_chain"),
-            shard_topic_prefix: String::from("attestations"), // simple single attestation topic for now
         }
     }
 
@@ -271,12 +265,7 @@ impl ChainSpec {
         /*
          * Lighthouse testnet bootnodes
          */
-        let boot_nodes = vec!["/ip4/127.0.0.1/tcp/9000"
-            .parse()
-            .expect("correct multiaddr")];
-
         Self {
-            boot_nodes,
             chain_id: 2, // lighthouse testnet chain id
             ..ChainSpec::few_validators()
         }
