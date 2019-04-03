@@ -1,16 +1,16 @@
 use clap::ArgMatches;
 use db::DBType;
+use eth2_libp2p::multiaddr::Protocol;
+use eth2_libp2p::multiaddr::ToMultiaddr;
+use eth2_libp2p::Multiaddr;
 use fork_choice::ForkChoiceAlgorithm;
-use network::NetworkConfig;
+use network::{ChainType, NetworkConfig};
 use slog::error;
 use std::fs;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
-use types::multiaddr::Protocol;
-use types::multiaddr::ToMultiaddr;
 use types::ChainSpec;
-use types::Multiaddr;
 
 /// Stores the client configuration for this Lighthouse instance.
 #[derive(Debug, Clone)]
@@ -37,14 +37,15 @@ impl Default for ClientConfig {
 
         // currently lighthouse spec
         let default_spec = ChainSpec::lighthouse_testnet();
+        let chain_type = ChainType::from(default_spec.chain_id);
         // builds a chain-specific network config
-        let net_conf = NetworkConfig::from(default_spec.chain_id);
+        let net_conf = NetworkConfig::from(chain_type);
 
         Self {
             data_dir: data_dir.clone(),
             // default to foundation for chain specs
             spec: default_spec,
-            net_conf: default_net_conf,
+            net_conf,
             // default to bitwise LMD Ghost
             fork_choice: ForkChoiceAlgorithm::BitwiseLMDGhost,
             // default to memory db for now

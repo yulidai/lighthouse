@@ -2,6 +2,10 @@ use crate::Multiaddr;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
 //use std::time::Duration;
 
+/// The beacon node topic string to subscribe to.
+pub const BEACON_PUBSUB_TOPIC: &str = "beacon_node";
+pub const SHARD_TOPIC_PREFIX: &str = "attestations"; // single topic for all attestation for the moment.
+
 #[derive(Clone, Debug)]
 /// Network configuration for lighthouse.
 pub struct Config {
@@ -20,10 +24,6 @@ pub struct Config {
     pub client_version: String,
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<String>,
-    /// Shard pubsub topic prefix.
-    pub shard_prefix: String,
-    /// The main beacon chain topic to subscribe to.
-    pub beacon_chain_topic: String,
 }
 
 impl Default for Config {
@@ -42,8 +42,6 @@ impl Default for Config {
             boot_nodes: Vec::new(),
             client_version: version::version(),
             topics: Vec::new(),
-            beacon_chain_topic: String::from("beacon_chain"),
-            shard_prefix: String::from("attestations"), // single topic for all attestation for the moment.
         }
     }
 }
