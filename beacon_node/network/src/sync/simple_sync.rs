@@ -549,7 +549,7 @@ impl SimpleSync {
         block: BeaconBlock,
         network: &mut NetworkContext,
     ) -> bool {
-        info!(
+        debug!(
             self.log,
             "NewGossipBlock";
             "peer" => format!("{:?}", peer_id),
@@ -610,7 +610,7 @@ impl SimpleSync {
             })) => {
                 if block_slot - present_slot > FUTURE_SLOT_TOLERANCE {
                     // The block is too far in the future, drop it.
-                    warn!(
+                    trace!(
                         self.log, "NewGossipBlock";
                         "msg" => "future block rejected",
                         "present_slot" => present_slot,
