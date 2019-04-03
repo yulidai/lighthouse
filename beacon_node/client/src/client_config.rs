@@ -36,7 +36,12 @@ impl Default for ClientConfig {
             .unwrap_or_else(|_| panic!("Unable to create {:?}", &data_dir));
 
         let default_spec = ChainSpec::lighthouse_testnet();
-        let default_net_conf = NetworkConfig::new(default_spec.boot_nodes.clone());
+        let default_pubsub_topics = vec![
+            default_spec.beacon_chain_topic.clone(),
+            default_spec.shard_topic_prefix.clone(),
+        ]; // simple singular attestation topic for now.
+        let default_net_conf =
+            NetworkConfig::new(default_spec.boot_nodes.clone(), default_pubsub_topics);
 
         Self {
             data_dir: data_dir.clone(),

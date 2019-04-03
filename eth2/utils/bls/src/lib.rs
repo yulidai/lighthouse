@@ -1,3 +1,4 @@
+#![warn(clippy::all)]
 extern crate bls_aggregates;
 extern crate ssz;
 

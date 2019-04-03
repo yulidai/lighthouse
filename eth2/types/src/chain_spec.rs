@@ -117,10 +117,11 @@ pub struct ChainSpec {
 
     /*
      * Network specific parameters
-     *
      */
     pub boot_nodes: Vec<Multiaddr>,
     pub chain_id: u8,
+    pub beacon_chain_topic: String,
+    pub shard_topic_prefix: String,
 }
 
 impl ChainSpec {
@@ -254,10 +255,12 @@ impl ChainSpec {
             domain_transfer: 5,
 
             /*
-             * Boot nodes
+             * Network specific
              */
             boot_nodes: vec![],
             chain_id: 1, // foundation chain id
+            beacon_chain_topic: String::from("beacon_chain"),
+            shard_topic_prefix: String::from("attestations"), // simple single attestation topic for now
         }
     }
 

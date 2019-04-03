@@ -1,5 +1,6 @@
 use crate::Multiaddr;
 use libp2p::gossipsub::{GossipsubConfig, GossipsubConfigBuilder};
+//use std::time::Duration;
 
 #[derive(Clone, Debug)]
 /// Network configuration for lighthouse.
@@ -31,19 +32,21 @@ impl Default for Config {
             listen_port: 9000,
             gs_config: GossipsubConfigBuilder::new()
                 .max_gossip_size(4_000_000)
+                //                .inactivity_timeout(Duration::from_secs(90))
                 .build(),
             identify_config: IdentifyConfig::default(),
             boot_nodes: Vec::new(),
             client_version: version::version(),
-            topics: vec![String::from("beacon_chain")],
+            topics: Vec::new(),
         }
     }
 }
 
 impl Config {
-    pub fn new(boot_nodes: Vec<Multiaddr>) -> Self {
+    pub fn new(boot_nodes: Vec<Multiaddr>, topics: Vec<String>) -> Self {
         let mut conf = Config::default();
         conf.boot_nodes = boot_nodes;
+        conf.topics = topics;
 
         conf
     }
