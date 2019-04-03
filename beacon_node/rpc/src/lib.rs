@@ -47,7 +47,7 @@ pub fn start_server(
     let beacon_block_service = {
         let instance = BeaconBlockServiceInstance {
             chain: beacon_chain.clone(),
-            network_chan,
+            network_chan: network_chan.clone(),
             log: log.clone(),
         };
         create_beacon_block_service(instance)
@@ -61,6 +61,7 @@ pub fn start_server(
     };
     let attestation_service = {
         let instance = AttestationServiceInstance {
+            network_chan,
             chain: beacon_chain.clone(),
             log: log.clone(),
         };

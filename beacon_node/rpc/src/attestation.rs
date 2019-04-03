@@ -1,6 +1,8 @@
 use crate::beacon_chain::BeaconChain;
+use eth2_libp2p::PubsubMessage;
 use futures::Future;
 use grpcio::{RpcContext, RpcStatus, RpcStatusCode, UnarySink};
+use network::NetworkMessage;
 use protos::services::{
     AttestationData as AttestationDataProto, ProduceAttestationDataRequest,
     ProduceAttestationDataResponse, PublishAttestationRequest, PublishAttestationResponse,
@@ -14,6 +16,7 @@ use types::Attestation;
 #[derive(Clone)]
 pub struct AttestationServiceInstance {
     pub chain: Arc<BeaconChain>,
+    pub network_chan: crossbeam_channel::Sender<NetworkMessage>,
     pub log: slog::Logger,
 }
 
@@ -126,7 +129,7 @@ impl AttestationService for AttestationServiceInstance {
             }
         };
 
-        match self.chain.process_attestation(attestation) {
+        match self.chain.process_attestation(attestation.clone()) {
             Ok(_) => {
                 // Attestation was successfully processed.
                 info!(
@@ -134,6 +137,24 @@ impl AttestationService for AttestationServiceInstance {
                     "PublishAttestation";
                     "type" => "valid_attestation",
                 );
+
+                // valid attestation, propagate to the network
+                let topic = types::TopicBuilder::new("attestations".to_string()).build();
+                let message = PubsubMessage::Attestation(attestation);
+
+                self.network_chan
+                    .send(NetworkMessage::Publish {
+                        topics: vec![topic],
+                        message,
+                    })
+                    .unwrap_or_else(|e| {
+                        error!(
+                            self.log,
+                            "PublishAttestation";
+                            "type" => "failed to publish attestation to gossipsub",
+                            "error" => format!("{:?}", e)
+                        );
+                    });
 
                 resp.set_success(true);
             }
