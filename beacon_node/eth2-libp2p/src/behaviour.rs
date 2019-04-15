@@ -1,3 +1,4 @@
+use crate::discovery::Discovery;
 use crate::rpc::{RPCEvent, RPCMessage, Rpc};
 use crate::NetworkConfig;
 use crate::{Topic, TopicHash};
@@ -9,19 +10,14 @@ use libp2p::{
     },
     gossipsub::{Gossipsub, GossipsubEvent},
     identify::{protocol::IdentifyInfo, Identify, IdentifyEvent},
-    kad::{Kademlia, KademliaOut},
+    kad::KademliaOut,
     ping::{Ping, PingEvent},
     tokio_io::{AsyncRead, AsyncWrite},
     NetworkBehaviour, PeerId,
 };
 use slog::{debug, o, trace, warn};
 use ssz::{ssz_encode, Decodable, DecodeError, Encodable, SszStream};
-use std::time::{Duration, Instant};
-use tokio_timer::Delay;
 use types::{Attestation, BeaconBlock};
-
-//TODO: Make this dynamic
-const TIME_BETWEEN_KAD_REQUESTS: Duration = Duration::from_secs(30);
 
 /// Builds the network behaviour for the libp2p Swarm.
 /// Implements gossipsub message routing.
@@ -37,13 +33,10 @@ pub struct Behaviour<TSubstream: AsyncRead + AsyncWrite> {
     /// Keep regular connection to peers and disconnect if absent.
     ping: Ping<TSubstream>,
     /// Kademlia for peer discovery.
-    kad: Kademlia<TSubstream>,
+    discovery: Discovery<TSubstream>,
     /// Queue of behaviour events to be processed.
     #[behaviour(ignore)]
     events: Vec<BehaviourEvent>,
-    /// The delay until we next search for more peers.
-    #[behaviour(ignore)]
-    kad_delay: Delay,
     /// Logger for behaviour actions.
     #[behaviour(ignore)]
     log: slog::Logger,
@@ -119,6 +112,12 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<IdentifyEv
                     );
                     info.listen_addrs.truncate(20);
                 }
+                trace!(self.log, "Found addresses"; "Peer Id" => format!("{:?}", peer_id), "Addresses" => format!("{:?}", info.listen_addrs));
+                // inject the found addresses into our discovery behaviour
+                for address in &info.listen_addrs {
+                    self.discovery
+                        .add_connected_address(&peer_id, address.clone());
+                }
                 self.events.push(BehaviourEvent::Identified(peer_id, info));
             }
             IdentifyEvent::Error { .. } => {}
@@ -135,31 +134,12 @@ impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<PingEvent>
     }
 }
 
-// implement the kademlia behaviour
+// implement the discovery behaviour (currently kademlia)
 impl<TSubstream: AsyncRead + AsyncWrite> NetworkBehaviourEventProcess<KademliaOut>
     for Behaviour<TSubstream>
 {
-    fn inject_event(&mut self, out: KademliaOut) {
-        match out {
-            KademliaOut::Discovered { peer_id, .. } => {
-                debug!(self.log, "Kademlia peer discovered: {:?}", peer_id);
-                // send this to our topology behaviour
-            }
-            KademliaOut::KBucketAdded { .. } => {
-                // send this to our topology behaviour
-            }
-            KademliaOut::FindNodeResult { closer_peers, .. } => {
-                debug!(
-                    self.log,
-                    "Kademlia query found {} peers",
-                    closer_peers.len()
-                );
-                if closer_peers.is_empty() {
-                    warn!(self.log, "Kademlia random query yielded empty results");
-                }
-            }
-            KademliaOut::GetProvidersResult { .. } => (),
-        }
+    fn inject_event(&mut self, _out: KademliaOut) {
+        // not interested in kademlia results at the moment
     }
 }
 
@@ -172,7 +152,7 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         Behaviour {
             serenity_rpc: Rpc::new(log),
             gossipsub: Gossipsub::new(local_peer_id.clone(), net_conf.gs_config.clone()),
-            kad: Kademlia::new(local_peer_id),
+            discovery: Discovery::new(local_peer_id, log),
             identify: Identify::new(
                 identify_config.version,
                 identify_config.user_agent,
@@ -180,7 +160,6 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
             ),
             ping: Ping::new(),
             events: Vec::new(),
-            kad_delay: Delay::new(Instant::now()),
             log: behaviour_log,
         }
     }
@@ -191,19 +170,6 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
     ) -> Async<NetworkBehaviourAction<TBehaviourIn, BehaviourEvent>> {
         if !self.events.is_empty() {
             return Async::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
-        }
-
-        // check to see if it's time to search for me peers with kademlia
-        loop {
-            match self.kad_delay.poll() {
-                Ok(Async::Ready(_)) => {
-                    self.get_kad_peers();
-                }
-                Ok(Async::NotReady) => break,
-                Err(e) => {
-                    warn!(self.log, "Error getting peers from Kademlia. Err: {:?}", e);
-                }
-            }
         }
 
         Async::NotReady
@@ -228,18 +194,6 @@ impl<TSubstream: AsyncRead + AsyncWrite> Behaviour<TSubstream> {
         for topic in topics {
             self.gossipsub.publish(topic, message_bytes.clone());
         }
-    }
-
-    /// Queries for more peers randomly using Kademlia.
-    pub fn get_kad_peers(&mut self) {
-        // pick a random PeerId
-        let random_peer = PeerId::random();
-        debug!(self.log, "Running kademlia random peer query");
-        self.kad.find_node(random_peer);
-
-        // update the kademlia timeout
-        self.kad_delay
-            .reset(Instant::now() + TIME_BETWEEN_KAD_REQUESTS);
     }
 }
 
