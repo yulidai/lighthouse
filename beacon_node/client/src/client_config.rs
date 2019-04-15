@@ -5,7 +5,7 @@ use eth2_libp2p::multiaddr::ToMultiaddr;
 use eth2_libp2p::Multiaddr;
 use fork_choice::ForkChoiceAlgorithm;
 use network::{ChainType, NetworkConfig};
-use slog::error;
+use slog::{error, o, Drain, Level};
 use std::fs;
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
@@ -59,8 +59,24 @@ impl Default for ClientConfig {
 
 impl ClientConfig {
     /// Parses the CLI arguments into a `Config` struct.
-    pub fn parse_args(args: ArgMatches, log: &slog::Logger) -> Result<Self, &'static str> {
+    pub fn parse_args(args: ArgMatches) -> Result<(slog::Logger, Self), &'static str> {
         let mut config = ClientConfig::default();
+
+        /* Logging related arguments */
+
+        // build the initial logger
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::CompactFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build();
+
+        let drain = match args.occurrences_of("verbosity") {
+            0 => drain.filter_level(Level::Info),
+            1 => drain.filter_level(Level::Debug),
+            2 => drain.filter_level(Level::Trace),
+            _ => drain.filter_level(Level::Info),
+        };
+
+        let log = slog::Logger::root(drain.fuse(), o!());
 
         /* Network related arguments */
 
@@ -134,6 +150,6 @@ impl ClientConfig {
             }
         }
 
-        Ok(config)
+        Ok((log, config))
     }
 }

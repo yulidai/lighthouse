@@ -1,17 +1,10 @@
-extern crate slog;
-
 mod run;
 
 use clap::{App, Arg};
 use client::ClientConfig;
-use slog::{error, o, Drain};
+use slog::error;
 
 fn main() {
-    let decorator = slog_term::TermDecorator::new().build();
-    let drain = slog_term::CompactFormat::new(decorator).build().fuse();
-    let drain = slog_async::Async::new(drain).build().fuse();
-    let logger = slog::Logger::root(drain, o!());
-
     let matches = App::new("Lighthouse")
         .version(version::version().as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
@@ -68,10 +61,18 @@ fn main() {
                 .help("Listen port for RPC endpoint.")
                 .takes_value(true),
         )
+        // logging related arguments
+        .arg(
+            Arg::with_name("verbosity")
+                .short("v")
+                .multiple(true)
+                .help("Sets the verbosity level")
+                .takes_value(true),
+        )
         .get_matches();
 
     // invalid arguments, panic
-    let config = ClientConfig::parse_args(matches, &logger).unwrap();
+    let (logger, config) = ClientConfig::parse_args(matches).unwrap();
 
     match run::run_beacon_node(config, &logger) {
         Ok(_) => {}
