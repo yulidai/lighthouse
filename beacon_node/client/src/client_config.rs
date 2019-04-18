@@ -73,7 +73,7 @@ impl ClientConfig {
             0 => drain.filter_level(Level::Info),
             1 => drain.filter_level(Level::Debug),
             2 => drain.filter_level(Level::Trace),
-            _ => drain.filter_level(Level::Info),
+            _ => drain.filter_level(Level::Trace),
         };
 
         let log = slog::Logger::root(drain.fuse(), o!());
