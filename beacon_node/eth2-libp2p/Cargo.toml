@@ -12,7 +12,7 @@ libp2p =  { path = "../../../sharding/rust-libp2p" }
 types = { path =  "../../eth2/types" }
 ssz = { path = "../../eth2/utils/ssz" }
 ssz_derive = { path = "../../eth2/utils/ssz_derive" }
-slog = "^2.2.3" 
+slog = { version = "^2.2.3" , features = ["max_level_trace", "release_max_level_trace"] }
 version = { path = "../version" }
 tokio = "0.1.16"
 futures = "0.1.25"
