@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use db::DBType;
 use eth2_libp2p::multiaddr::Protocol;
-use eth2_libp2p::multiaddr::ToMultiaddr;
+// use eth2_libp2p::multiaddr::ToMultiaddr;
 use eth2_libp2p::Multiaddr;
 use fork_choice::ForkChoiceAlgorithm;
 use network::{ChainType, NetworkConfig};
@@ -87,7 +87,7 @@ impl ClientConfig {
                 // update the listening multiaddrs
                 for address in &mut config.net_conf.listen_addresses {
                     address.pop();
-                    address.append(Protocol::Tcp(port));
+                    address.push(Protocol::Tcp(port));
                 }
             } else {
                 error!(log, "Invalid port"; "port" => port_str);
@@ -98,9 +98,8 @@ impl ClientConfig {
         // TODO: Handle list of addresses
         if let Some(listen_address_str) = args.value_of("listen-address") {
             if let Ok(listen_address) = listen_address_str.parse::<IpAddr>() {
-                let multiaddr = SocketAddr::new(listen_address, config.net_conf.listen_port)
-                    .to_multiaddr()
-                    .expect("Invalid listen address format");
+                let mut multiaddr = Multiaddr::from(listen_address);
+                multiaddr.push(Protocol::Tcp(config.net_conf.listen_port));
                 config.net_conf.listen_addresses = vec![multiaddr];
             } else {
                 error!(log, "Invalid IP Address"; "Address" => listen_address_str);
