@@ -37,6 +37,10 @@
 //!
 //! ```
 
+#[cfg(test)]
+#[macro_use(quickcheck)]
+extern crate quickcheck_macros;
+
 #[macro_use]
 mod bitfield;
 mod fixed_vector;

@@ -19,3 +19,5 @@ typenum = "1.10"
 [dev-dependencies]
 serde_yaml = "0.8"
 tree_hash_derive = { path = "../tree_hash_derive" }
+quickcheck = "0.8.5"
+quickcheck_macros = "0.8"

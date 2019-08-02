@@ -1173,3 +1173,38 @@ mod bitlist {
         );
     }
 }
+
+#[cfg(test)]
+mod quickcheck_tests {
+    use super::*;
+    use quickcheck::TestResult;
+    use typenum::U64;
+
+    type BitList64 = BitList<U64>;
+    type BitVector64 = BitVector<U64>;
+
+    #[quickcheck]
+    fn simple(x: bool) -> bool {
+        x || true
+    }
+
+    fn bool_vec<N: Unsigned + Clone>(values: &[bool]) -> BitVector<N> {
+        let mut bv = BitVector::new();
+        for (i, v) in values.iter().enumerate() {
+            bv.set(i, *v).unwrap();
+        }
+        bv
+    }
+
+    #[quickcheck]
+    fn vec_highest_set_bit(values: Vec<bool>) -> TestResult {
+        if values.len() > BitVector64::capacity() {
+            return TestResult::discard();
+        }
+        let bv: BitVector64 = bool_vec(&values);
+        TestResult::from_bool(match bv.highest_set_bit() {
+            Some(hsb) => bv.get(hsb).unwrap() && (hsb + 1..bv.len()).all(|i| !bv.get(i).unwrap()),
+            None => bv.is_zero(),
+        })
+    }
+}
