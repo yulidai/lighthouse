@@ -1,4 +1,3 @@
-use crate::tree_hash::bitfield_bytes_tree_hash_root;
 use crate::Error;
 use core::marker::PhantomData;
 use serde::de::{Deserialize, Deserializer};
@@ -568,41 +567,48 @@ impl<'de, N: Unsigned + Clone> Deserialize<'de> for Bitfield<Fixed<N>> {
 }
 
 impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Variable<N>> {
-    fn tree_hash_type() -> tree_hash::TreeHashType {
-        tree_hash::TreeHashType::List
+    fn tree_hash_apply_root<F>(&self, mut f: F)
+    where
+        F: FnMut(&[u8]),
+    {
+        f(&self.tree_hash_root());
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        unreachable!("List should never be packed.")
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("List should never be packed.")
+    fn tree_hash_packing() -> tree_hash::TreeHashPacking {
+        tree_hash::TreeHashPacking::NotPacked
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        // Note: we use `as_slice` because it does _not_ have the length-delimiting bit set (or
-        // present).
-        let root = bitfield_bytes_tree_hash_root::<N>(self.as_slice());
-        tree_hash::mix_in_length(&root, self.len())
+        let mut hasher = tree_hash::VecTreeHasher::new(
+            tree_hash::TreeHashPacking::NotPacked.height_for_value_count(self.as_slice().len()),
+        );
+
+        hasher.update(self.as_slice());
+
+        hasher.finish()
     }
 }
 
 impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Fixed<N>> {
-    fn tree_hash_type() -> tree_hash::TreeHashType {
-        tree_hash::TreeHashType::Vector
+    fn tree_hash_apply_root<F>(&self, mut f: F)
+    where
+        F: FnMut(&[u8]),
+    {
+        f(&self.tree_hash_root());
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        unreachable!("Vector should never be packed.")
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("Vector should never be packed.")
+    fn tree_hash_packing() -> tree_hash::TreeHashPacking {
+        tree_hash::TreeHashPacking::NotPacked
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        bitfield_bytes_tree_hash_root::<N>(self.as_slice())
+        let mut hasher = tree_hash::VecTreeHasher::new(
+            tree_hash::TreeHashPacking::NotPacked.height_for_value_count(self.as_slice().len()),
+        );
+
+        hasher.update(self.as_slice());
+
+        hasher.finish()
     }
 }
 

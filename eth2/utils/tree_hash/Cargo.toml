@@ -20,3 +20,4 @@ types = { path = "../../types" }
 ethereum-types = "0.6"
 eth2_hashing = "0.1"
 lazy_static = "0.1"
+ring = "0.14.6"

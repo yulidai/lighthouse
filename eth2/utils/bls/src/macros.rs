@@ -40,22 +40,27 @@ macro_rules! impl_ssz {
 macro_rules! impl_tree_hash {
     ($type: ty, $byte_size: ident) => {
         impl tree_hash::TreeHash for $type {
-            fn tree_hash_type() -> tree_hash::TreeHashType {
-                tree_hash::TreeHashType::Vector
+            fn tree_hash_apply_root<F>(&self, mut f: F)
+            where
+                F: FnMut(&[u8]),
+            {
+                f(&self.tree_hash_root());
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                unreachable!("Vector should never be packed.")
-            }
-
-            fn tree_hash_packing_factor() -> usize {
-                unreachable!("Vector should never be packed.")
+            fn tree_hash_packing() -> tree_hash::TreeHashPacking {
+                tree_hash::TreeHashPacking::NotPacked
             }
 
             fn tree_hash_root(&self) -> Vec<u8> {
-                let vector: ssz_types::FixedVector<u8, ssz_types::typenum::$byte_size> =
-                    ssz_types::FixedVector::from(self.as_ssz_bytes());
-                vector.tree_hash_root()
+                let bytes = self.as_ssz_bytes();
+
+                let mut hasher = tree_hash::VecTreeHasher::new(
+                    tree_hash::TreeHashPacking::NotPacked.height_for_value_count(bytes.len()),
+                );
+
+                hasher.update(&bytes);
+
+                hasher.finish()
             }
         }
     };

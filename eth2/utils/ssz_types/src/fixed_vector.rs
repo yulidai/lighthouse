@@ -1,4 +1,3 @@
-use crate::tree_hash::vec_tree_hash_root;
 use crate::Error;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -146,24 +145,27 @@ impl<T, N: Unsigned> Deref for FixedVector<T, N> {
     }
 }
 
-impl<T, N: Unsigned> tree_hash::TreeHash for FixedVector<T, N>
-where
-    T: tree_hash::TreeHash,
-{
-    fn tree_hash_type() -> tree_hash::TreeHashType {
-        tree_hash::TreeHashType::Vector
+impl<T: tree_hash::TreeHash, N: Unsigned> tree_hash::TreeHash for FixedVector<T, N> {
+    fn tree_hash_apply_root<F>(&self, mut f: F)
+    where
+        F: FnMut(&[u8]),
+    {
+        f(&self.tree_hash_root());
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        unreachable!("Vector should never be packed.")
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("Vector should never be packed.")
+    fn tree_hash_packing() -> tree_hash::TreeHashPacking {
+        tree_hash::TreeHashPacking::NotPacked
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        vec_tree_hash_root::<T, N>(&self.vec)
+        let mut hasher = tree_hash::VecTreeHasher::new(
+            T::tree_hash_packing().height_for_value_count(N::to_usize()),
+        );
+
+        self.iter()
+            .for_each(|item| item.tree_hash_apply_root(|bytes| hasher.update(bytes)));
+
+        hasher.finish()
     }
 }
 

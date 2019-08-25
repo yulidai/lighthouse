@@ -1,5 +1,4 @@
 use super::BYTES_PER_CHUNK;
-// use eth2_hashing::hash;
 use ring::digest::{Context, Digest, SHA256};
 
 /// The size of the cache that stores padding nodes for a given height.
@@ -22,6 +21,127 @@ lazy_static! {
     };
 
     static ref EMPTY_HASH: Digest = hash(&[]);
+}
+
+pub struct VecTreeHasher {
+    height: usize,
+    chunks: ChunkStore,
+    context: Context,
+    context_size: usize,
+    first_chunk: Option<Vec<u8>>,
+}
+
+impl VecTreeHasher {
+    pub fn new(height: usize) -> Self {
+        Self {
+            height,
+            chunks: ChunkStore::with_capacity(0),
+            context: Context::new(&SHA256),
+            context_size: 0,
+            first_chunk: Some(vec![]),
+        }
+    }
+
+    fn finish_context(&mut self) {
+        let context = std::mem::replace(&mut self.context, Context::new(&SHA256));
+        self.chunks.push(context.finish());
+        self.context_size = 0;
+    }
+
+    fn update_first_chunk(&mut self, bytes: &[u8]) {
+        if let Some(ref mut first_chunk) = self.first_chunk {
+            if first_chunk.len() + bytes.len() <= BYTES_PER_CHUNK {
+                first_chunk.append(&mut bytes.to_vec());
+            } else {
+                self.first_chunk = None
+            }
+        }
+    }
+
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.update_first_chunk(bytes);
+
+        let remaining = BYTES_PER_CHUNK * 2 - self.context_size;
+
+        if remaining >= bytes.len() {
+            self.context.update(bytes);
+            self.context_size += bytes.len();
+        } else {
+            self.context.update(&bytes[0..remaining]);
+            self.context_size += remaining;
+            self.finish_context();
+            self.update(&bytes[remaining..bytes.len()]);
+        }
+
+        if self.context_size == BYTES_PER_CHUNK * 2 {
+            self.finish_context()
+        }
+    }
+
+    pub fn finish(mut self) -> Vec<u8> {
+        if self.height == 1 {
+            if let Some(mut first_chunk) = self.first_chunk {
+                first_chunk.resize(BYTES_PER_CHUNK, 0);
+                return first_chunk;
+            }
+        }
+
+        if self.context_size > 0 || (self.context_size == 0 && self.chunks.len() == 0) {
+            let remaining = BYTES_PER_CHUNK * 2 - self.context_size;
+            dbg!(remaining);
+            self.update(&vec![0; remaining])
+        }
+
+        merkleize_chunks(self.chunks, self.height)
+    }
+}
+
+pub struct ContainerTreeHasher {
+    height: usize,
+    chunks: ChunkStore,
+    context: Option<Context>,
+}
+
+impl ContainerTreeHasher {
+    pub fn new(height: usize) -> Self {
+        Self {
+            height,
+            chunks: ChunkStore::with_capacity(0),
+            context: None,
+        }
+    }
+
+    fn apply_to_context(context: &mut Context, bytes: &[u8]) {
+        if bytes.len() >= BYTES_PER_CHUNK {
+            context.update(&bytes[0..BYTES_PER_CHUNK]);
+        } else {
+            context.update(bytes);
+            context.update(&vec![0; BYTES_PER_CHUNK - bytes.len()]);
+        }
+    }
+
+    pub fn update(&mut self, bytes: &[u8]) {
+        if self.context.is_some() {
+            let mut context = std::mem::replace(&mut self.context, None)
+                .expect("Context must be Some, guarded by `is_some()`");
+
+            Self::apply_to_context(&mut context, bytes);
+
+            self.chunks.push(context.finish());
+        } else {
+            let mut context = Context::new(&SHA256);
+            Self::apply_to_context(&mut context, bytes);
+
+            self.context = Some(context);
+        }
+    }
+
+    pub fn finish(mut self) -> Vec<u8> {
+        if self.chunks.len() == 1 && self.context.is_some() {
+            self.update(&[0; BYTES_PER_CHUNK])
+        }
+        merkleize_chunks(self.chunks, self.height)
+    }
 }
 
 /// Merkleize `bytes` and return the root, optionally padding the tree out to `min_leaves` number of
@@ -52,80 +172,9 @@ lazy_static! {
 ///
 /// _Note: there are some minor memory overheads, including a handful of usizes and a list of
 /// `MAX_TREE_DEPTH` hashes as `lazy_static` constants._
-pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
-    // If the bytes are just one chunk or less, pad to one chunk and return without hashing.
-    if bytes.len() <= BYTES_PER_CHUNK && min_leaves <= 1 {
-        let mut o = bytes.to_vec();
-        o.resize(BYTES_PER_CHUNK, 0);
-        return o;
-    }
-
-    assert!(
-        bytes.len() > BYTES_PER_CHUNK || min_leaves > 1,
-        "Merkle hashing only needs to happen if there is more than one chunk"
-    );
-
-    // The number of leaves that can be made directly from `bytes`.
-    let leaves_with_values = (bytes.len() + (BYTES_PER_CHUNK - 1)) / BYTES_PER_CHUNK;
-
-    // The number of parents that have at least one non-padding leaf.
-    //
-    // Since there is more than one node in this tree (see prior assertion), there should always be
-    // one or more initial parent nodes.
-    let initial_parents_with_values = std::cmp::max(1, next_even_number(leaves_with_values) / 2);
-
-    // The number of leaves in the full tree (including padding nodes).
-    let num_leaves = std::cmp::max(leaves_with_values, min_leaves).next_power_of_two();
-
-    // The number of levels in the tree.
-    //
-    // A tree with a single node has `height == 1`.
-    let height = num_leaves.trailing_zeros() as usize + 1;
-
-    assert!(height >= 2, "The tree should have two or more heights");
-
-    // A buffer/scratch-space used for storing each round of hashes at each height.
-    //
-    // This buffer is kept as small as possible; it will shrink so it never stores a padding node.
-    let mut chunks = ChunkStore::with_capacity(initial_parents_with_values);
-
-    // Create a parent in the `chunks` buffer for every two chunks in `bytes`.
-    //
-    // I.e., do the first round of hashing, hashing from the `bytes` slice and filling the `chunks`
-    // struct.
-    for i in 0..initial_parents_with_values {
-        let start = i * BYTES_PER_CHUNK * 2;
-
-        // Hash two chunks, creating a parent chunk.
-        let hash = match bytes.get(start..start + BYTES_PER_CHUNK * 2) {
-            // All bytes are available, hash as usual.
-            Some(slice) => hash(slice),
-            // Unable to get all the bytes, get a small slice and pad it out.
-            None => {
-                let value = bytes
-                    .get(start..)
-                    .expect("`i` can only be larger than zero if there are bytes to read");
-                // .to_vec();
-                hash_concat(value, &vec![0; BYTES_PER_CHUNK * 2 - value.len()])
-                /*
-                preimage.resize(BYTES_PER_CHUNK * 2, 0);
-                hash(&preimage)
-                */
-            }
-        };
-
-        /*
-        assert_eq!(
-            hash.len(),
-            BYTES_PER_CHUNK,
-            "Hashes should be exactly one chunk"
-        );
-        */
-
-        // Store the parent node.
-        chunks
-            .set(i, hash)
-            .expect("Buffer should always have capacity for parent nodes")
+pub fn merkleize_chunks(mut chunks: ChunkStore, height: usize) -> Vec<u8> {
+    if chunks.len() == 0 {
+        return vec![0; BYTES_PER_CHUNK];
     }
 
     // Iterate through all heights above the leaf nodes and either (a) hash two children or, (b)
@@ -136,7 +185,7 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
     //
     // The padding nodes for each height are cached via `lazy static` to simulate non-adjacent
     // padding nodes (i.e., avoid doing unnecessary hashing).
-    for height in 1..height - 1 {
+    for height in 1..height {
         let child_nodes = chunks.len();
         let parent_nodes = next_even_number(child_nodes) / 2;
 
@@ -162,6 +211,7 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
             );
 
             let hash = hash_concat(left, right);
+            dbg!(hash);
 
             // Store a parent node.
             chunks
@@ -178,14 +228,18 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
     // There should be a single chunk left in the buffer and it is the Merkle root.
     let root = chunks.into_vec();
 
-    assert_eq!(root.len(), BYTES_PER_CHUNK, "Only one chunk should remain");
+    assert_eq!(
+        root.len(),
+        BYTES_PER_CHUNK,
+        "Exactly one chunk should remain"
+    );
 
     root
 }
 
 /// A helper struct for storing words of `BYTES_PER_CHUNK` size in a flat byte array.
 #[derive(Debug)]
-struct ChunkStore(Vec<Digest>);
+pub struct ChunkStore(Vec<Digest>);
 
 impl ChunkStore {
     /// Creates a new instance with `chunks` padding nodes.
@@ -204,6 +258,10 @@ impl ChunkStore {
         } else {
             Err(())
         }
+    }
+
+    fn push(&mut self, value: Digest) {
+        self.0.push(value)
     }
 
     /// Gets the `i`th chunk.
@@ -254,12 +312,6 @@ fn get_zero_hash(height: usize) -> &'static [u8] {
     }
 }
 
-/// Concatenate two vectors.
-fn concat(mut vec1: Vec<u8>, mut vec2: Vec<u8>) -> Vec<u8> {
-    vec1.append(&mut vec2);
-    vec1
-}
-
 pub fn hash(preimage: &[u8]) -> Digest {
     let mut ctx = Context::new(&SHA256);
     ctx.update(preimage);
@@ -280,6 +332,7 @@ fn next_even_number(n: usize) -> usize {
     n + n % 2
 }
 
+/*
 #[cfg(test)]
 mod test {
     use super::*;
@@ -392,3 +445,4 @@ mod test {
         );
     }
 }
+*/

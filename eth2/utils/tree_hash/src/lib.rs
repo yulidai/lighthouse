@@ -2,9 +2,11 @@
 extern crate lazy_static;
 
 pub mod impls;
+pub mod iterator_hasher;
 mod merkleize_padded;
 mod merkleize_standard;
 
+pub use iterator_hasher::{ContainerTreeHasher, VecTreeHasher};
 pub use merkleize_padded::merkleize_padded;
 pub use merkleize_standard::merkleize_standard;
 
@@ -28,22 +30,39 @@ pub fn mix_in_length(root: &[u8], length: usize) -> Vec<u8> {
     length_bytes.resize(BYTES_PER_CHUNK, 0);
 
     merkleize_padded::hash_concat(root, &length_bytes)
+        .as_ref()
+        .to_vec()
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum TreeHashType {
-    Basic,
-    Vector,
-    List,
-    Container,
+pub fn height_for_leaf_count(leaf_count: usize) -> usize {
+    leaf_count.next_power_of_two().trailing_zeros() as usize + 1
+}
+
+#[derive(Debug)]
+pub enum TreeHashPacking {
+    NotPacked,
+    Packed { packing_factor: usize },
+}
+
+impl TreeHashPacking {
+    pub fn height_for_value_count(&self, value_count: usize) -> usize {
+        let num_leaves = match self {
+            TreeHashPacking::NotPacked => value_count,
+            TreeHashPacking::Packed { packing_factor } => {
+                (value_count + packing_factor - 1) / packing_factor
+            }
+        };
+
+        height_for_leaf_count(num_leaves)
+    }
 }
 
 pub trait TreeHash {
-    fn tree_hash_type() -> TreeHashType;
+    fn tree_hash_apply_root<F>(&self, f: F)
+    where
+        F: FnMut(&[u8]);
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8>;
-
-    fn tree_hash_packing_factor() -> usize;
+    fn tree_hash_packing() -> TreeHashPacking;
 
     fn tree_hash_root(&self) -> Vec<u8>;
 }
@@ -52,6 +71,7 @@ pub trait SignedRoot: TreeHash {
     fn signed_root(&self) -> Vec<u8>;
 }
 
+/*
 #[macro_export]
 macro_rules! tree_hash_ssz_encoding_as_vector {
     ($type: ident) => {
@@ -97,6 +117,7 @@ macro_rules! tree_hash_ssz_encoding_as_list {
         }
     };
 }
+*/
 
 #[cfg(test)]
 mod test {

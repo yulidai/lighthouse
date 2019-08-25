@@ -53,29 +53,31 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
     };
 
     let idents = get_hashable_named_field_idents(&struct_data);
+    let num_idents = idents.len();
 
     let output = quote! {
         impl #impl_generics tree_hash::TreeHash for #name #ty_generics #where_clause {
-            fn tree_hash_type() -> tree_hash::TreeHashType {
-                tree_hash::TreeHashType::Container
+            fn tree_hash_apply_root<F>(&self, mut f: F)
+            where
+                F: FnMut(&[u8]),
+            {
+                f(&self.tree_hash_root())
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                unreachable!("Struct should never be packed.")
-            }
-
-            fn tree_hash_packing_factor() -> usize {
-                unreachable!("Struct should never be packed.")
+            fn tree_hash_packing() -> tree_hash::TreeHashPacking {
+                tree_hash::TreeHashPacking::NotPacked
             }
 
             fn tree_hash_root(&self) -> Vec<u8> {
-                let mut leaves = Vec::with_capacity(4 * tree_hash::HASHSIZE);
+                let mut hasher = tree_hash::ContainerTreeHasher::new(
+                    tree_hash::height_for_leaf_count(#num_idents)
+                );
 
                 #(
-                    leaves.append(&mut self.#idents.tree_hash_root());
+                    self.#idents.tree_hash_apply_root(|bytes| hasher.update(bytes));
                 )*
 
-                tree_hash::merkle_root(&leaves, 0)
+                hasher.finish()
             }
         }
     };

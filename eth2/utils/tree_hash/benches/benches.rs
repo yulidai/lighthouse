@@ -50,10 +50,12 @@ fn bench_suite<T: EthSpec>(c: &mut Criterion, spec_desc: &str, validator_count: 
 
 fn all_benches(c: &mut Criterion) {
     bench_suite::<MinimalEthSpec>(c, "minimal", 100_000);
+    /*
     bench_suite::<MinimalEthSpec>(c, "minimal", 300_000);
 
     bench_suite::<MainnetEthSpec>(c, "mainnet", 100_000);
     bench_suite::<MainnetEthSpec>(c, "mainnet", 300_000);
+    */
 }
 
 criterion_group!(benches, all_benches,);

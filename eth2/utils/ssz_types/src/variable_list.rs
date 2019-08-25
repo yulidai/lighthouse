@@ -1,4 +1,3 @@
-use crate::tree_hash::vec_tree_hash_root;
 use crate::Error;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
@@ -173,24 +172,37 @@ impl<'a, T, N: Unsigned> IntoIterator for &'a VariableList<T, N> {
     }
 }
 
-impl<T, N: Unsigned> tree_hash::TreeHash for VariableList<T, N>
-where
-    T: tree_hash::TreeHash,
-{
-    fn tree_hash_type() -> tree_hash::TreeHashType {
-        tree_hash::TreeHashType::List
+impl<T: tree_hash::TreeHash, N: Unsigned> tree_hash::TreeHash for VariableList<T, N> {
+    fn tree_hash_apply_root<F>(&self, mut f: F)
+    where
+        F: FnMut(&[u8]),
+    {
+        f(&self.tree_hash_root());
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        unreachable!("List should never be packed.")
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        unreachable!("List should never be packed.")
+    fn tree_hash_packing() -> tree_hash::TreeHashPacking {
+        tree_hash::TreeHashPacking::NotPacked
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        let root = vec_tree_hash_root::<T, N>(&self.vec);
+        let tree_height = T::tree_hash_packing().height_for_value_count(N::to_usize());
+
+        dbg!(tree_height);
+        dbg!(self.len());
+        dbg!(N::to_usize());
+        dbg!(T::tree_hash_packing());
+        let mut hasher = tree_hash::VecTreeHasher::new(tree_height);
+
+        self.iter().for_each(|item| {
+            item.tree_hash_apply_root(|bytes| {
+                dbg!(bytes);
+                hasher.update(bytes);
+            })
+        });
+
+        let root = hasher.finish();
+
+        dbg!(&root);
 
         tree_hash::mix_in_length(&root, self.len())
     }

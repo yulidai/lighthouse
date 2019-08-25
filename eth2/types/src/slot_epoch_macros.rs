@@ -221,20 +221,19 @@ macro_rules! impl_ssz {
         }
 
         impl tree_hash::TreeHash for $type {
-            fn tree_hash_type() -> tree_hash::TreeHashType {
-                tree_hash::TreeHashType::Basic
+            fn tree_hash_apply_root<F>(&self, mut f: F)
+            where
+                F: FnMut(&[u8]),
+            {
+                f(&self.0.tree_hash_root());
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                ssz_encode(self)
-            }
-
-            fn tree_hash_packing_factor() -> usize {
-                32 / 8
+            fn tree_hash_packing() -> tree_hash::TreeHashPacking {
+                u64::tree_hash_packing()
             }
 
             fn tree_hash_root(&self) -> Vec<u8> {
-                int_to_bytes::int_to_bytes32(self.0)
+                self.0.tree_hash_root()
             }
         }
 

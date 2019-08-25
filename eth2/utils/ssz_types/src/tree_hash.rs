@@ -1,3 +1,4 @@
+/*
 use tree_hash::{merkle_root, TreeHash, TreeHashType, BYTES_PER_CHUNK};
 use typenum::Unsigned;
 
@@ -46,3 +47,4 @@ pub fn bitfield_bytes_tree_hash_root<N: Unsigned>(bytes: &[u8]) -> Vec<u8> {
 
     merkle_root(bytes, minimum_chunk_count)
 }
+*/

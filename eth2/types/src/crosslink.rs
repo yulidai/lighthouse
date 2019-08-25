@@ -17,10 +17,10 @@ use tree_hash_derive::TreeHash;
     Default,
     Serialize,
     Deserialize,
+    TreeHash,
     Hash,
     Encode,
     Decode,
-    TreeHash,
     TestRandom,
 )]
 pub struct Crosslink {

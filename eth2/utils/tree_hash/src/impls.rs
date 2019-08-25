@@ -4,21 +4,25 @@ use ethereum_types::H256;
 macro_rules! impl_for_bitsize {
     ($type: ident, $bit_size: expr) => {
         impl TreeHash for $type {
-            fn tree_hash_type() -> TreeHashType {
-                TreeHashType::Basic
+            fn tree_hash_apply_root<F>(&self, mut f: F)
+            where
+                F: FnMut(&[u8]),
+            {
+                f(&self.to_le_bytes())
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                self.to_le_bytes().to_vec()
+            fn tree_hash_packing() -> TreeHashPacking {
+                // FIXME: assumes $bit_size <= 256.
+                TreeHashPacking::Packed {
+                    packing_factor: HASHSIZE / ($bit_size / 8),
+                }
             }
 
-            fn tree_hash_packing_factor() -> usize {
-                HASHSIZE / ($bit_size / 8)
-            }
-
-            #[allow(clippy::cast_lossless)]
             fn tree_hash_root(&self) -> Vec<u8> {
-                int_to_bytes32(*self as u64)
+                let mut bytes = self.to_le_bytes().to_vec();
+                // FIXME: assumes $bit_size <= 256.
+                bytes.resize(BYTES_PER_CHUNK, 0);
+                bytes
             }
         }
     };
@@ -31,40 +35,41 @@ impl_for_bitsize!(u64, 64);
 impl_for_bitsize!(usize, 64);
 
 impl TreeHash for bool {
-    fn tree_hash_type() -> TreeHashType {
-        TreeHashType::Basic
+    fn tree_hash_apply_root<F>(&self, f: F)
+    where
+        F: FnMut(&[u8]),
+    {
+        (*self as u8).tree_hash_apply_root(f)
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        (*self as u8).tree_hash_packed_encoding()
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        u8::tree_hash_packing_factor()
+    fn tree_hash_packing() -> TreeHashPacking {
+        u8::tree_hash_packing()
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        int_to_bytes32(*self as u64)
+        (*self as u8).tree_hash_root()
     }
 }
 
 macro_rules! impl_for_u8_array {
     ($len: expr) => {
         impl TreeHash for [u8; $len] {
-            fn tree_hash_type() -> TreeHashType {
-                TreeHashType::Vector
+            fn tree_hash_apply_root<F>(&self, mut f: F)
+            where
+                F: FnMut(&[u8]),
+            {
+                f(&self[..])
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                unreachable!("bytesN should never be packed.")
-            }
-
-            fn tree_hash_packing_factor() -> usize {
-                unreachable!("bytesN should never be packed.")
+            fn tree_hash_packing() -> TreeHashPacking {
+                TreeHashPacking::NotPacked
             }
 
             fn tree_hash_root(&self) -> Vec<u8> {
-                merkle_root(&self[..], 0)
+                let mut bytes = self.to_vec();
+                // FIXME: assumes $bit_size <= 256.
+                bytes.resize(BYTES_PER_CHUNK, 0);
+                bytes
             }
         }
     };
@@ -74,22 +79,19 @@ impl_for_u8_array!(4);
 impl_for_u8_array!(32);
 
 impl TreeHash for H256 {
-    fn tree_hash_type() -> TreeHashType {
-        TreeHashType::Vector
+    fn tree_hash_apply_root<F>(&self, mut f: F)
+    where
+        F: FnMut(&[u8]),
+    {
+        f(&self[..])
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        self.as_bytes().to_vec()
-    }
-
-    fn tree_hash_packing_factor() -> usize {
-        1
+    fn tree_hash_packing() -> TreeHashPacking {
+        TreeHashPacking::NotPacked
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        let bytes = self.as_bytes().to_vec();
-        assert_eq!(bytes.len(), BYTES_PER_CHUNK);
-        bytes
+        self.as_bytes().to_vec()
     }
 }
 
@@ -101,16 +103,15 @@ macro_rules! impl_for_list {
         where
             T: TreeHash,
         {
-            fn tree_hash_type() -> TreeHashType {
+            fn tree_hash_apply_root<F>(&self, _f: F)
+            where
+                F: FnMut(&[u8]),
+            {
                 unimplemented!("TreeHash is not implemented for Vec or slice")
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                unimplemented!("TreeHash is not implemented for Vec or slice")
-            }
-
-            fn tree_hash_packing_factor() -> usize {
-                unimplemented!("TreeHash is not implemented for Vec or slice")
+            fn tree_hash_packing() -> TreeHashPacking {
+                TreeHashPacking::NotPacked
             }
 
             fn tree_hash_root(&self) -> Vec<u8> {
@@ -123,16 +124,16 @@ macro_rules! impl_for_list {
 impl_for_list!(Vec<T>);
 impl_for_list!(&[T]);
 
-/// Returns `int` as little-endian bytes with a length of 32.
-fn int_to_bytes32(int: u64) -> Vec<u8> {
-    let mut vec = int.to_le_bytes().to_vec();
-    vec.resize(32, 0);
-    vec
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
+
+    /// Returns `int` as little-endian bytes with a length of 32.
+    fn int_to_bytes32(int: u64) -> Vec<u8> {
+        let mut vec = int.to_le_bytes().to_vec();
+        vec.resize(32, 0);
+        vec
+    }
 
     #[test]
     fn bool() {
