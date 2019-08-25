@@ -87,7 +87,9 @@ impl TreeHash for H256 {
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        merkle_root(&self.as_bytes().to_vec(), 0)
+        let bytes = self.as_bytes().to_vec();
+        assert_eq!(bytes.len(), BYTES_PER_CHUNK);
+        bytes
     }
 }
 
