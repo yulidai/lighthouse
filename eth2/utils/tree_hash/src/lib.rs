@@ -6,7 +6,7 @@ pub mod iterator_hasher;
 mod merkleize_padded;
 mod merkleize_standard;
 
-pub use iterator_hasher::{ContainerTreeHasher, VecTreeHasher};
+pub use iterator_hasher::VecTreeHasher;
 pub use merkleize_padded::merkleize_padded;
 pub use merkleize_standard::merkleize_standard;
 
@@ -30,8 +30,6 @@ pub fn mix_in_length(root: &[u8], length: usize) -> Vec<u8> {
     length_bytes.resize(BYTES_PER_CHUNK, 0);
 
     merkleize_padded::hash_concat(root, &length_bytes)
-        .as_ref()
-        .to_vec()
 }
 
 pub fn height_for_leaf_count(leaf_count: usize) -> usize {

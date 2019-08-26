@@ -54,7 +54,7 @@ macro_rules! impl_tree_hash {
             fn tree_hash_root(&self) -> Vec<u8> {
                 let bytes = self.as_ssz_bytes();
 
-                let mut hasher = tree_hash::VecTreeHasher::new(
+                let mut hasher = tree_hash::VecTreeHasher::packed(
                     tree_hash::TreeHashPacking::NotPacked.height_for_value_count(bytes.len()),
                 );
 

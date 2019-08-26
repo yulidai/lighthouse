@@ -158,12 +158,14 @@ impl<T: tree_hash::TreeHash, N: Unsigned> tree_hash::TreeHash for FixedVector<T,
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        let mut hasher = tree_hash::VecTreeHasher::new(
-            T::tree_hash_packing().height_for_value_count(N::to_usize()),
-        );
+        let tree_height = T::tree_hash_packing().height_for_value_count(N::to_usize());
+        let mut hasher = tree_hash::VecTreeHasher::packed(tree_height);
 
-        self.iter()
-            .for_each(|item| item.tree_hash_apply_root(|bytes| hasher.update(bytes)));
+        self.iter().for_each(|item| {
+            item.tree_hash_apply_root(|bytes| {
+                hasher.update(bytes);
+            })
+        });
 
         hasher.finish()
     }
@@ -363,8 +365,8 @@ mod test {
 
         let fixed: FixedVector<A, U8> = FixedVector::from(vec![a; 8]);
         assert_eq!(
+            merkle_root(&repeat(&a.tree_hash_root(), 8), 0),
             fixed.tree_hash_root(),
-            merkle_root(&repeat(&a.tree_hash_root(), 8), 0)
         );
 
         let fixed: FixedVector<A, U13> = FixedVector::from(vec![a; 13]);

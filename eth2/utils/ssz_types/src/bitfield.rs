@@ -579,7 +579,7 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Variable<N>> {
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        let mut hasher = tree_hash::VecTreeHasher::new(
+        let mut hasher = tree_hash::VecTreeHasher::not_packed(
             tree_hash::TreeHashPacking::NotPacked.height_for_value_count(self.as_slice().len()),
         );
 
@@ -602,7 +602,7 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Fixed<N>> {
     }
 
     fn tree_hash_root(&self) -> Vec<u8> {
-        let mut hasher = tree_hash::VecTreeHasher::new(
+        let mut hasher = tree_hash::VecTreeHasher::not_packed(
             tree_hash::TreeHashPacking::NotPacked.height_for_value_count(self.as_slice().len()),
         );
 

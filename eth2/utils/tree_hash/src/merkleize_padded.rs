@@ -1,6 +1,5 @@
 use super::BYTES_PER_CHUNK;
-// use eth2_hashing::hash;
-use ring::digest::{Context, Digest, SHA256};
+use eth2_hashing::hash;
 
 /// The size of the cache that stores padding nodes for a given height.
 ///
@@ -15,13 +14,11 @@ lazy_static! {
         let mut hashes = vec![vec![0; 32]; MAX_TREE_DEPTH + 1];
 
         for i in 0..MAX_TREE_DEPTH {
-            hashes[i + 1] = hash_concat(&hashes[i], &hashes[i]).as_ref().to_vec();
+            hashes[i + 1] = hash_concat(&hashes[i], &hashes[i]);
         }
 
         hashes
     };
-
-    static ref EMPTY_HASH: Digest = hash(&[]);
 }
 
 /// Merkleize `bytes` and return the root, optionally padding the tree out to `min_leaves` number of
@@ -102,29 +99,24 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
             Some(slice) => hash(slice),
             // Unable to get all the bytes, get a small slice and pad it out.
             None => {
-                let value = bytes
+                let mut preimage = bytes
                     .get(start..)
-                    .expect("`i` can only be larger than zero if there are bytes to read");
-                // .to_vec();
-                hash_concat(value, &vec![0; BYTES_PER_CHUNK * 2 - value.len()])
-                /*
+                    .expect("`i` can only be larger than zero if there are bytes to read")
+                    .to_vec();
                 preimage.resize(BYTES_PER_CHUNK * 2, 0);
                 hash(&preimage)
-                */
             }
         };
 
-        /*
         assert_eq!(
             hash.len(),
             BYTES_PER_CHUNK,
             "Hashes should be exactly one chunk"
         );
-        */
 
         // Store the parent node.
         chunks
-            .set(i, hash)
+            .set(i, &hash)
             .expect("Buffer should always have capacity for parent nodes")
     }
 
@@ -145,7 +137,7 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
         // - If two nodes are available, hash them to form a parent.
         // - If one node is available, hash it and a cached padding node to form a parent.
         for i in 0..parent_nodes {
-            let (left, right) = match (chunks.get_slice(i * 2), chunks.get_slice(i * 2 + 1)) {
+            let (left, right) = match (chunks.get(i * 2), chunks.get(i * 2 + 1)) {
                 (Ok(left), Ok(right)) => (left, right),
                 (Ok(left), Err(_)) => (left, get_zero_hash(height)),
                 // Deriving `parent_nodes` from `chunks.len()` has ensured that we never encounter the
@@ -165,7 +157,7 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
 
             // Store a parent node.
             chunks
-                .set(i, hash)
+                .set(i, &hash)
                 .expect("Buf is adequate size for parent");
         }
 
@@ -185,21 +177,21 @@ pub fn merkleize_padded(bytes: &[u8], min_leaves: usize) -> Vec<u8> {
 
 /// A helper struct for storing words of `BYTES_PER_CHUNK` size in a flat byte array.
 #[derive(Debug)]
-struct ChunkStore(Vec<Digest>);
+struct ChunkStore(Vec<u8>);
 
 impl ChunkStore {
     /// Creates a new instance with `chunks` padding nodes.
     fn with_capacity(chunks: usize) -> Self {
-        Self(vec![*EMPTY_HASH; chunks])
+        Self(vec![0; chunks * BYTES_PER_CHUNK])
     }
 
     /// Set the `i`th chunk to `value`.
     ///
     /// Returns `Err` if `value.len() != BYTES_PER_CHUNK` or `i` is out-of-bounds.
-    fn set(&mut self, i: usize, value: Digest) -> Result<(), ()> {
-        if i < self.len() {
-            self.0[i] = value;
-
+    fn set(&mut self, i: usize, value: &[u8]) -> Result<(), ()> {
+        if i < self.len() && value.len() == BYTES_PER_CHUNK {
+            let slice = &mut self.0[i * BYTES_PER_CHUNK..i * BYTES_PER_CHUNK + BYTES_PER_CHUNK];
+            slice.copy_from_slice(value);
             Ok(())
         } else {
             Err(())
@@ -209,9 +201,9 @@ impl ChunkStore {
     /// Gets the `i`th chunk.
     ///
     /// Returns `Err` if `i` is out-of-bounds.
-    fn get_slice(&self, i: usize) -> Result<&[u8], ()> {
+    fn get(&self, i: usize) -> Result<&[u8], ()> {
         if i < self.len() {
-            Ok(&self.0[i].as_ref())
+            Ok(&self.0[i * BYTES_PER_CHUNK..i * BYTES_PER_CHUNK + BYTES_PER_CHUNK])
         } else {
             Err(())
         }
@@ -219,29 +211,19 @@ impl ChunkStore {
 
     /// Returns the number of chunks presently stored in `self`.
     fn len(&self) -> usize {
-        self.0.len()
+        self.0.len() / BYTES_PER_CHUNK
     }
 
     /// Truncates 'self' to `num_chunks` chunks.
     ///
     /// Functionally identical to `Vec::truncate`.
     fn truncate(&mut self, num_chunks: usize) {
-        self.0.truncate(num_chunks)
+        self.0.truncate(num_chunks * BYTES_PER_CHUNK)
     }
 
-    /*
     /// Consumes `self`, returning the underlying byte array.
     fn into_vec(self) -> Vec<u8> {
         self.0
-    }
-    */
-    /// Consumes `self`, returning the underlying byte array.
-    fn into_vec(self) -> Vec<u8> {
-        let mut vec = Vec::with_capacity(self.len() * BYTES_PER_CHUNK);
-        self.0
-            .into_iter()
-            .for_each(|d| vec.append(&mut d.as_ref().to_vec()));
-        vec
     }
 }
 
@@ -260,19 +242,9 @@ fn concat(mut vec1: Vec<u8>, mut vec2: Vec<u8>) -> Vec<u8> {
     vec1
 }
 
-pub fn hash(preimage: &[u8]) -> Digest {
-    let mut ctx = Context::new(&SHA256);
-    ctx.update(preimage);
-    ctx.finish()
-}
-
 /// Compute the hash of two other hashes concatenated.
-pub fn hash_concat(h1: &[u8], h2: &[u8]) -> Digest {
-    // hash(&concat(h1.to_vec(), h2.to_vec()))
-    let mut ctx = Context::new(&SHA256);
-    ctx.update(h1);
-    ctx.update(h2);
-    ctx.finish()
+pub fn hash_concat(h1: &[u8], h2: &[u8]) -> Vec<u8> {
+    hash(&concat(h1.to_vec(), h2.to_vec()))
 }
 
 /// Returns the next even number following `n`. If `n` is even, `n` is returned.

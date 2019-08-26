@@ -69,9 +69,8 @@ pub fn tree_hash_derive(input: TokenStream) -> TokenStream {
             }
 
             fn tree_hash_root(&self) -> Vec<u8> {
-                let mut hasher = tree_hash::ContainerTreeHasher::new(
-                    tree_hash::height_for_leaf_count(#num_idents)
-                );
+                let height = tree_hash::height_for_leaf_count(#num_idents);
+                let mut hasher = tree_hash::VecTreeHasher::not_packed(height);
 
                 #(
                     self.#idents.tree_hash_apply_root(|bytes| hasher.update(bytes));

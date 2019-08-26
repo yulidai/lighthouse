@@ -29,16 +29,27 @@ pub struct VecTreeHasher {
     context: Context,
     context_size: usize,
     first_chunk: Option<Vec<u8>>,
+    should_pack: bool,
 }
 
 impl VecTreeHasher {
-    pub fn new(height: usize) -> Self {
+    pub fn packed(height: usize) -> Self {
+        Self::new(height, true)
+    }
+
+    pub fn not_packed(height: usize) -> Self {
+        Self::new(height, false)
+    }
+
+    fn new(height: usize, should_pack: bool) -> Self {
         Self {
             height,
             chunks: ChunkStore::with_capacity(0),
             context: Context::new(&SHA256),
             context_size: 0,
             first_chunk: Some(vec![]),
+            /// Note: It is a logic error to change `should_pack` after `update` has been called.
+            should_pack,
         }
     }
 
@@ -58,24 +69,45 @@ impl VecTreeHasher {
         }
     }
 
+    fn update_maybe_padded(&mut self, bytes: &[u8]) {
+        assert!(bytes.len() <= BYTES_PER_CHUNK);
+
+        self.context.update(bytes);
+        self.context_size += bytes.len();
+
+        let padding = BYTES_PER_CHUNK - bytes.len();
+        if !self.should_pack && padding > 0 {
+            self.context.update(&vec![0; padding]);
+            self.context_size += padding;
+        }
+    }
+
     pub fn update(&mut self, bytes: &[u8]) {
         self.update_first_chunk(bytes);
 
-        let remaining = BYTES_PER_CHUNK * 2 - self.context_size;
+        bytes.chunks(BYTES_PER_CHUNK).for_each(|bytes| {
+            let remaining = BYTES_PER_CHUNK * 2 - self.context_size;
 
-        if remaining >= bytes.len() {
-            self.context.update(bytes);
-            self.context_size += bytes.len();
-        } else {
-            self.context.update(&bytes[0..remaining]);
-            self.context_size += remaining;
-            self.finish_context();
-            self.update(&bytes[remaining..bytes.len()]);
-        }
+            if remaining >= bytes.len() {
+                // The current context can accept all of the bytes, apply them.
+                self.update_maybe_padded(bytes);
+            } else {
+                self.update_maybe_padded(&bytes[0..remaining]);
+                self.finish_context();
 
-        if self.context_size == BYTES_PER_CHUNK * 2 {
-            self.finish_context()
-        }
+                // Due to `.chunks`, we know that the (overridden) `bytes` slice cannot be
+                // longer than `BYTES_PER_CHUNK`.
+                //
+                // If there are more bytes that remain in the current context, then there
+                // cannot be more than one context-worth bytes remaining and one more update is
+                // sufficient.
+                self.update_maybe_padded(&bytes[remaining..]);
+            }
+
+            if self.context_size == BYTES_PER_CHUNK * 2 {
+                self.finish_context()
+            }
+        });
     }
 
     pub fn finish(mut self) -> Vec<u8> {
@@ -88,14 +120,15 @@ impl VecTreeHasher {
 
         if self.context_size > 0 || (self.context_size == 0 && self.chunks.len() == 0) {
             let remaining = BYTES_PER_CHUNK * 2 - self.context_size;
-            dbg!(remaining);
             self.update(&vec![0; remaining])
         }
 
-        merkleize_chunks(self.chunks, self.height)
+        let root = merkleize_chunks(self.chunks, self.height);
+        root
     }
 }
 
+/*
 pub struct ContainerTreeHasher {
     height: usize,
     chunks: ChunkStore,
@@ -143,6 +176,7 @@ impl ContainerTreeHasher {
         merkleize_chunks(self.chunks, self.height)
     }
 }
+*/
 
 /// Merkleize `bytes` and return the root, optionally padding the tree out to `min_leaves` number of
 /// leaves.
@@ -185,44 +219,45 @@ pub fn merkleize_chunks(mut chunks: ChunkStore, height: usize) -> Vec<u8> {
     //
     // The padding nodes for each height are cached via `lazy static` to simulate non-adjacent
     // padding nodes (i.e., avoid doing unnecessary hashing).
-    for height in 1..height {
-        let child_nodes = chunks.len();
-        let parent_nodes = next_even_number(child_nodes) / 2;
+    if height > 2 {
+        for height in 1..height - 1 {
+            let child_nodes = chunks.len();
+            let parent_nodes = next_even_number(child_nodes) / 2;
 
-        // For each pair of nodes stored in `chunks`:
-        //
-        // - If two nodes are available, hash them to form a parent.
-        // - If one node is available, hash it and a cached padding node to form a parent.
-        for i in 0..parent_nodes {
-            let (left, right) = match (chunks.get_slice(i * 2), chunks.get_slice(i * 2 + 1)) {
-                (Ok(left), Ok(right)) => (left, right),
-                (Ok(left), Err(_)) => (left, get_zero_hash(height)),
-                // Deriving `parent_nodes` from `chunks.len()` has ensured that we never encounter the
-                // scenario where we expect two nodes but there are none.
-                (Err(_), Err(_)) => unreachable!("Parent must have one child"),
-                // `chunks` is a contiguous array so it is impossible for an index to be missing
-                // when a higher index is present.
-                (Err(_), Ok(_)) => unreachable!("Parent must have a left child"),
-            };
+            // For each pair of nodes stored in `chunks`:
+            //
+            // - If two nodes are available, hash them to form a parent.
+            // - If one node is available, hash it and a cached padding node to form a parent.
+            for i in 0..parent_nodes {
+                let (left, right) = match (chunks.get_slice(i * 2), chunks.get_slice(i * 2 + 1)) {
+                    (Ok(left), Ok(right)) => (left, right),
+                    (Ok(left), Err(_)) => (left, get_zero_hash(height)),
+                    // Deriving `parent_nodes` from `chunks.len()` has ensured that we never encounter the
+                    // scenario where we expect two nodes but there are none.
+                    (Err(_), Err(_)) => unreachable!("Parent must have one child"),
+                    // `chunks` is a contiguous array so it is impossible for an index to be missing
+                    // when a higher index is present.
+                    (Err(_), Ok(_)) => unreachable!("Parent must have a left child"),
+                };
 
-            assert!(
-                left.len() == right.len() && right.len() == BYTES_PER_CHUNK,
-                "Both children should be `BYTES_PER_CHUNK` bytes."
-            );
+                assert!(
+                    left.len() == right.len() && right.len() == BYTES_PER_CHUNK,
+                    "Both children should be `BYTES_PER_CHUNK` bytes."
+                );
 
-            let hash = hash_concat(left, right);
-            dbg!(hash);
+                let hash = hash_concat(left, right);
 
-            // Store a parent node.
-            chunks
-                .set(i, hash)
-                .expect("Buf is adequate size for parent");
+                // Store a parent node.
+                chunks
+                    .set(i, hash)
+                    .expect("Buf is adequate size for parent");
+            }
+
+            // Shrink the buffer so it neatly fits the number of new nodes created in this round.
+            //
+            // The number of `parent_nodes` is either decreasing or stable. It never increases.
+            chunks.truncate(parent_nodes);
         }
-
-        // Shrink the buffer so it neatly fits the number of new nodes created in this round.
-        //
-        // The number of `parent_nodes` is either decreasing or stable. It never increases.
-        chunks.truncate(parent_nodes);
     }
 
     // There should be a single chunk left in the buffer and it is the Merkle root.
@@ -320,7 +355,6 @@ pub fn hash(preimage: &[u8]) -> Digest {
 
 /// Compute the hash of two other hashes concatenated.
 pub fn hash_concat(h1: &[u8], h2: &[u8]) -> Digest {
-    // hash(&concat(h1.to_vec(), h2.to_vec()))
     let mut ctx = Context::new(&SHA256);
     ctx.update(h1);
     ctx.update(h2);

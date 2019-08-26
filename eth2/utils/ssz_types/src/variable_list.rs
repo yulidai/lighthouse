@@ -186,23 +186,15 @@ impl<T: tree_hash::TreeHash, N: Unsigned> tree_hash::TreeHash for VariableList<T
 
     fn tree_hash_root(&self) -> Vec<u8> {
         let tree_height = T::tree_hash_packing().height_for_value_count(N::to_usize());
-
-        dbg!(tree_height);
-        dbg!(self.len());
-        dbg!(N::to_usize());
-        dbg!(T::tree_hash_packing());
-        let mut hasher = tree_hash::VecTreeHasher::new(tree_height);
+        let mut hasher = tree_hash::VecTreeHasher::packed(tree_height);
 
         self.iter().for_each(|item| {
             item.tree_hash_apply_root(|bytes| {
-                dbg!(bytes);
                 hasher.update(bytes);
             })
         });
 
         let root = hasher.finish();
-
-        dbg!(&root);
 
         tree_hash::mix_in_length(&root, self.len())
     }
