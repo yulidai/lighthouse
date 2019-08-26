@@ -23,6 +23,8 @@ lazy_static! {
     static ref EMPTY_HASH: Digest = hash(&[]);
 }
 
+pub const ZERO_BYTES: [u8; BYTES_PER_CHUNK * 2] = [0; BYTES_PER_CHUNK * 2];
+
 pub struct VecTreeHasher {
     height: usize,
     chunks: ChunkStore,
@@ -47,16 +49,21 @@ impl VecTreeHasher {
             chunks: ChunkStore::with_capacity(0),
             context: Context::new(&SHA256),
             context_size: 0,
-            first_chunk: Some(vec![]),
+            first_chunk: Some(Vec::with_capacity(BYTES_PER_CHUNK)),
             /// Note: It is a logic error to change `should_pack` after `update` has been called.
             should_pack,
         }
     }
 
     fn finish_context(&mut self) {
+        self.chunks.push(self.context.clone().finish());
+        self.context_size = 0;
+        self.context = Context::new(&SHA256);
+        /*
         let context = std::mem::replace(&mut self.context, Context::new(&SHA256));
         self.chunks.push(context.finish());
         self.context_size = 0;
+        */
     }
 
     fn update_first_chunk(&mut self, bytes: &[u8]) {
@@ -77,7 +84,7 @@ impl VecTreeHasher {
 
         let padding = BYTES_PER_CHUNK - bytes.len();
         if !self.should_pack && padding > 0 {
-            self.context.update(&vec![0; padding]);
+            self.context.update(&ZERO_BYTES[0..padding]);
             self.context_size += padding;
         }
     }
@@ -120,7 +127,7 @@ impl VecTreeHasher {
 
         if self.context_size > 0 || (self.context_size == 0 && self.chunks.len() == 0) {
             let remaining = BYTES_PER_CHUNK * 2 - self.context_size;
-            self.update(&vec![0; remaining])
+            self.update(&ZERO_BYTES[0..remaining])
         }
 
         let root = merkleize_chunks(self.chunks, self.height);
