@@ -4,6 +4,7 @@ use criterion::Criterion;
 use criterion::{black_box, criterion_group, criterion_main, Benchmark};
 use ssz::Encode;
 use state_processing::{test_utils::BlockBuilder, BlockSignatureStrategy, VerifySignatures};
+use types::typenum::Unsigned;
 use types::{BeaconBlock, BeaconState, ChainSpec, EthSpec, MainnetEthSpec, MinimalEthSpec, Slot};
 
 pub const VALIDATORS_LOW: usize = 32_768;
@@ -12,6 +13,10 @@ pub const VALIDATORS_HIGH: usize = 300_032;
 fn all_benches(c: &mut Criterion) {
     env_logger::init();
 
+    attestation_bench::<MainnetEthSpec>(c, "mainnet", 2_usize.pow(16), 128, 128);
+    attestation_bench::<MainnetEthSpec>(c, "mainnet", 2_usize.pow(16), 128, 256);
+
+    /*
     average_bench::<MinimalEthSpec>(c, "minimal", VALIDATORS_LOW);
     average_bench::<MainnetEthSpec>(c, "mainnet", VALIDATORS_LOW);
     average_bench::<MainnetEthSpec>(c, "mainnet", VALIDATORS_HIGH);
@@ -19,6 +24,7 @@ fn all_benches(c: &mut Criterion) {
     worst_bench::<MinimalEthSpec>(c, "minimal", VALIDATORS_LOW);
     worst_bench::<MainnetEthSpec>(c, "mainnet", VALIDATORS_LOW);
     worst_bench::<MainnetEthSpec>(c, "mainnet", VALIDATORS_HIGH);
+    */
 }
 
 /// Run a bench with a average complexity block.
@@ -38,6 +44,34 @@ fn worst_bench<T: EthSpec>(c: &mut Criterion, spec_desc: &str, validator_count: 
 
     let (block, state) = get_worst_block(validator_count, spec);
     bench_block::<T>(c, block, state, spec, spec_desc, "high_complexity_block");
+}
+
+/// Run a bench with `vote_count` votes split over `num_attestations` attestations.
+fn attestation_bench<T: EthSpec>(
+    c: &mut Criterion,
+    spec_desc: &str,
+    vote_count: usize,
+    num_attestation_committees: usize,
+    num_attestations: usize,
+) {
+    let spec = &T::default_spec();
+    let (block, state) = get_attestation_block(
+        vote_count,
+        num_attestation_committees,
+        num_attestations,
+        spec,
+    );
+
+    assert_eq!(block.body.attestations.len(), num_attestations);
+    block.body.attestations.iter().for_each(|att| {
+        assert_eq!(
+            att.aggregation_bits.num_set_bits(),
+            vote_count / num_attestations
+        );
+    });
+
+    let block_desc = format!("attestations_{}_block", num_attestations);
+    bench_block::<T>(c, block, state, spec, spec_desc, &block_desc);
 }
 
 /// Return a block and state where the block has "average" complexity. I.e., the number of
@@ -65,6 +99,28 @@ fn get_worst_block<T: EthSpec>(
 
     // FIXME: enable deposits once we can generate them with valid proofs.
     builder.num_deposits = 0;
+
+    builder.set_slot(Slot::from(T::slots_per_epoch() * 3 - 2));
+    builder.build_caches(&spec);
+    builder.build(&spec)
+}
+
+fn get_attestation_block<T: EthSpec>(
+    vote_count: usize,
+    // Number of committees to draw `num_attestations` from.
+    num_attestation_committees: usize,
+    num_attestations: usize,
+    spec: &ChainSpec,
+) -> (BeaconBlock<T>, BeaconState<T>) {
+    // Set the number of validators so that `num_attestation_committees` committees comprise
+    // exactly `vote_count` votes. These votes will then be split if necessary to form the
+    // right number of attestations.
+    let validator_count = T::ShardCount::to_usize() * vote_count / num_attestation_committees;
+
+    let mut builder: BlockBuilder<T> = BlockBuilder::new(validator_count, &spec);
+
+    builder.max_attestation_committees = Some(num_attestation_committees);
+    builder.num_attestations = num_attestations;
 
     builder.set_slot(Slot::from(T::slots_per_epoch() * 3 - 2));
     builder.build_caches(&spec);
@@ -145,6 +201,7 @@ fn bench_block<T: EthSpec>(
         .sample_size(10),
     );
 
+    /*
     let local_block = block.clone();
     let local_state = state.clone();
     let local_spec = spec.clone();
@@ -421,6 +478,7 @@ fn bench_block<T: EthSpec>(
         })
         .sample_size(10),
     );
+    */
 }
 
 criterion_group!(benches, all_benches,);

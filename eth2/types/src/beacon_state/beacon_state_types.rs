@@ -1,8 +1,8 @@
 use crate::*;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    Unsigned, U0, U1, U1024, U1099511627776, U128, U16, U16777216, U4, U4096, U64, U65536, U8,
-    U8192,
+    Unsigned, U0, U1, U1024, U1099511627776, U16, U16384, U16777216, U256, U4, U4096, U64, U65536,
+    U8, U8192,
 };
 use std::fmt::Debug;
 
@@ -157,11 +157,11 @@ impl EthSpec for MainnetEthSpec {
     type ValidatorRegistryLimit = U1099511627776;
     type MaxProposerSlashings = U16;
     type MaxAttesterSlashings = U1;
-    type MaxAttestations = U128;
+    type MaxAttestations = U256;
     type MaxDeposits = U16;
     type MaxVoluntaryExits = U16;
     type MaxTransfers = U0;
-    type MaxPendingAttestations = U8192; // 128 max attestations * 64 slots per epoch
+    type MaxPendingAttestations = U16384; // 256 max attestations * 64 slots per epoch
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()

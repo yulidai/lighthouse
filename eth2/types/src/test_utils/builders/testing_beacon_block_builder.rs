@@ -105,11 +105,11 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
         &mut self,
         state: &BeaconState<T>,
         secret_keys: &[&SecretKey],
+        max_attestation_committees: Option<usize>,
         num_attestations: usize,
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
         let mut slot = self.block.slot - spec.min_attestation_inclusion_delay;
-        let mut attestations_added = 0;
 
         // Stores the following (in order):
         //
@@ -133,7 +133,9 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
             }
 
             for crosslink_committee in state.get_crosslink_committees_at_slot(slot)? {
-                if attestations_added >= num_attestations {
+                if committees.len() >= num_attestations {
+                    break;
+                } else if max_attestation_committees.map_or(false, |max| committees.len() >= max) {
                     break;
                 }
 
@@ -143,8 +145,6 @@ impl<T: EthSpec> TestingBeaconBlockBuilder<T> {
                     crosslink_committee.committee.to_vec(),
                     crosslink_committee.shard,
                 ));
-
-                attestations_added += 1;
             }
 
             slot -= 1;

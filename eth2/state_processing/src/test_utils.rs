@@ -13,6 +13,9 @@ pub struct BlockBuilder<T: EthSpec> {
     pub num_deposits: usize,
     pub num_exits: usize,
     pub num_transfers: usize,
+
+    /// Maximum number of committees to draw votes from when gathering attestations.
+    pub max_attestation_committees: Option<usize>,
 }
 
 impl<T: EthSpec> BlockBuilder<T> {
@@ -31,6 +34,7 @@ impl<T: EthSpec> BlockBuilder<T> {
             num_deposits: 0,
             num_exits: 0,
             num_transfers: 0,
+            max_attestation_committees: None,
         }
     }
 
@@ -115,6 +119,7 @@ impl<T: EthSpec> BlockBuilder<T> {
             .insert_attestations(
                 &state,
                 &all_secret_keys,
+                self.max_attestation_committees,
                 self.num_attestations as usize,
                 spec,
             )
