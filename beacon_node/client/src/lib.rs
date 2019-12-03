@@ -1,7 +1,7 @@
 extern crate slog;
 
 mod config;
-mod slot_notifier;
+mod notifier;
 
 pub mod builder;
 pub mod error;

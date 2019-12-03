@@ -2,13 +2,17 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{Future, Stream};
+use network::Service as NetworkService;
 use parking_lot::Mutex;
-use slog::{debug, error, info};
+use slog::{debug, error, info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::timer::Interval;
 use types::{EthSpec, Slot};
+
+/// Create a warning log whenever the peer count is at or below this value.
+pub const WARN_PEER_COUNT: usize = 1;
 
 const SECS_PER_MINUTE: u64 = 60;
 const SECS_PER_HOUR: u64 = 3600;
@@ -18,9 +22,11 @@ const DAYS_PER_WEEK: u64 = 7;
 const HOURS_PER_DAY: u64 = 24;
 const MINUTES_PER_HOUR: u64 = 60;
 
-pub fn spawn_slot_notifier<T: BeaconChainTypes>(
+/// Spawns a notifier service which periodically logs information about the node.
+pub fn spawn_notifier<T: BeaconChainTypes>(
     context: RuntimeContext<T::EthSpec>,
     beacon_chain: Arc<BeaconChain<T>>,
+    network: Arc<NetworkService<T>>,
     milliseconds_per_slot: u64,
 ) -> Result<Signal, String> {
     let log_1 = context.log.clone();
@@ -45,13 +51,17 @@ pub fn spawn_slot_notifier<T: BeaconChainTypes>(
             move |e| error!(log_1, "Slot notifier timer failed"; "error" => format!("{:?}", e)),
         )
         .for_each(move |_| {
+            let log = log_2.clone();
+
+            let connected_peer_count = network.libp2p_service().lock().swarm.connected_peers();
+
             let head = beacon_chain.head();
 
             let head_slot = head.beacon_block.slot;
             let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
             let current_slot = beacon_chain.slot().map_err(|e| {
                 error!(
-                    log_2,
+                    log,
                     "Unable to read current slot";
                     "error" => format!("{:?}", e)
                 )
@@ -69,9 +79,14 @@ pub fn spawn_slot_notifier<T: BeaconChainTypes>(
 
             *previous_head_slot = head_slot;
 
+            if connected_peer_count <= WARN_PEER_COUNT {
+                warn!(log, "Low peer count"; "peer_count" => connected_peer_count);
+            }
+
             debug!(
-                log_2,
+                log,
                 "Slot timer";
+                "peers" => connected_peer_count,
                 "finalized_root" => format!("{}", finalized_root),
                 "finalized_epoch" => finalized_epoch,
                 "head_block" => format!("{}", head_root),
@@ -87,8 +102,9 @@ pub fn spawn_slot_notifier<T: BeaconChainTypes>(
                 );
 
                 info!(
-                    log_2,
+                    log,
                     "Syncing";
+                    "peers" => connected_peer_count,
                     "speed" => sync_rate_pretty(slots_since_last_update, interval_duration.as_secs()),
                     "distance" => distance
                 );
@@ -101,6 +117,7 @@ pub fn spawn_slot_notifier<T: BeaconChainTypes>(
                     info!(
                         log_2,
                         $message;
+                        "peers" => connected_peer_count,
                         "finalized_root" => format!("{}", finalized_root),
                         "finalized_epoch" => finalized_epoch,
                         "head_slot" => head_slot,
@@ -117,6 +134,7 @@ pub fn spawn_slot_notifier<T: BeaconChainTypes>(
                 info!(
                     log_2,
                     "Synced";
+                    "peers" => connected_peer_count,
                     "finalized_root" => format!("{}", finalized_root),
                     "finalized_epoch" => finalized_epoch,
                     "epoch" => current_epoch,
@@ -135,6 +153,7 @@ pub fn spawn_slot_notifier<T: BeaconChainTypes>(
     Ok(exit_signal)
 }
 
+/// Returns a nicely formated string describing the rate of slot imports per second.
 fn sync_rate_pretty(slots_since_last_update: Slot, update_interval_secs: u64) -> String {
     if update_interval_secs == 0 {
         return "Error".into();
@@ -150,6 +169,8 @@ fn sync_rate_pretty(slots_since_last_update: Slot, update_interval_secs: u64) ->
     }
 }
 
+/// Returns a nicely formatted string describing the `slot_span` in terms of weeks, days, hours
+/// and/or minutes.
 fn slot_distance_pretty(slot_span: Slot, slot_duration: Duration) -> String {
     if slot_duration == Duration::from_secs(0) {
         return String::from("Unknown");
