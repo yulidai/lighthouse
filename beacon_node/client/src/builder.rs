@@ -1,4 +1,5 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
+use crate::slot_notifier::spawn_slot_notifier;
 use crate::Client;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
@@ -380,54 +381,20 @@ where
             .as_ref()
             .ok_or_else(|| "slot_notifier requires a runtime_context")?
             .service_context("slot_notifier".into());
-        let log = context.log.clone();
-        let log_2 = log.clone();
         let beacon_chain = self
             .beacon_chain
             .clone()
             .ok_or_else(|| "slot_notifier requires a libp2p network")?;
-        let spec = self
+        let milliseconds_per_slot = self
             .chain_spec
-            .clone()
-            .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?;
-        let slot_duration = Duration::from_millis(spec.milliseconds_per_slot);
-        let duration_to_next_slot = beacon_chain
-            .slot_clock
-            .duration_to_next_slot()
-            .ok_or_else(|| "slot_notifier unable to determine time to next slot")?;
+            .as_ref()
+            .ok_or_else(|| "slot_notifier requires a chain spec".to_string())?
+            .milliseconds_per_slot;
 
-        let (exit_signal, exit) = exit_future::signal();
+        let exit_signal = spawn_slot_notifier(context, beacon_chain, milliseconds_per_slot)
+            .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
         self.exit_signals.push(exit_signal);
-
-        let interval_future = Interval::new(Instant::now() + duration_to_next_slot, slot_duration)
-            .map_err(move |e| error!(log_2, "Slot timer failed"; "error" => format!("{:?}", e)))
-            .for_each(move |_| {
-                let best_slot = beacon_chain.head().beacon_block.slot;
-                let latest_block_root = beacon_chain.head().beacon_block_root;
-
-                if let Ok(current_slot) = beacon_chain.slot() {
-                    info!(
-                        log,
-                        "Slot start";
-                        "skip_slots" => current_slot.saturating_sub(best_slot),
-                        "best_block_root" => format!("{}", latest_block_root),
-                        "best_block_slot" => best_slot,
-                        "slot" => current_slot,
-                    )
-                } else {
-                    error!(
-                        log,
-                        "Beacon chain running whilst slot clock is unavailable."
-                    );
-                };
-
-                Ok(())
-            });
-
-        context
-            .executor
-            .spawn(exit.until(interval_future).map(|_| ()));
 
         Ok(self)
     }
