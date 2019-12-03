@@ -2,6 +2,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use environment::RuntimeContext;
 use exit_future::Signal;
 use futures::{Future, Stream};
+use parking_lot::Mutex;
 use slog::{debug, error, info};
 use slot_clock::SlotClock;
 use std::sync::Arc;
@@ -37,6 +38,8 @@ pub fn spawn_slot_notifier<T: BeaconChainTypes>(
     // Run this each slot.
     let interval_duration = slot_duration;
 
+    let previous_head_slot = Mutex::new(Slot::new(0));
+
     let interval_future = Interval::new(start_instant, interval_duration)
         .map_err(
             move |e| error!(log_1, "Slot notifier timer failed"; "error" => format!("{:?}", e)),
@@ -44,8 +47,8 @@ pub fn spawn_slot_notifier<T: BeaconChainTypes>(
         .for_each(move |_| {
             let head = beacon_chain.head();
 
-            let best_slot = head.beacon_block.slot;
-            let best_epoch = best_slot.epoch(T::EthSpec::slots_per_epoch());
+            let head_slot = head.beacon_block.slot;
+            let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
             let current_slot = beacon_chain.slot().map_err(|e| {
                 error!(
                     log_2,
@@ -56,55 +59,69 @@ pub fn spawn_slot_notifier<T: BeaconChainTypes>(
             let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
             let finalized_epoch = head.beacon_state.finalized_checkpoint.epoch;
             let finalized_root = head.beacon_state.finalized_checkpoint.root;
+            let head_root = head.beacon_block_root;
 
-            // Taking advantage of saturating subtraction on `Slot`.
-            let slot_span = current_slot - best_slot;
+            let mut previous_head_slot = previous_head_slot.lock();
+
+            // The next two lines take advantage of saturating subtraction on `Slot`.
+            let head_distance = current_slot - head_slot;
+            let slots_since_last_update = head_slot - *previous_head_slot;
+
+            *previous_head_slot = head_slot;
 
             debug!(
                 log_2,
                 "Slot timer";
                 "finalized_root" => format!("{}", finalized_root),
                 "finalized_epoch" => finalized_epoch,
-                "head_block" => format!("{}", head.beacon_block_root),
-                "best_slot" => best_slot,
+                "head_block" => format!("{}", head_root),
+                "head_slot" => head_slot,
                 "current_slot" => current_slot,
             );
 
-            if best_epoch + 1 < current_epoch {
+            if head_epoch + 1 < current_epoch {
                 let distance = format!(
                     "{} slots ({})",
-                    slot_span.as_u64(),
-                    slot_distance_pretty(slot_span, slot_duration)
+                    head_distance.as_u64(),
+                    slot_distance_pretty(head_distance, slot_duration)
                 );
 
                 info!(
                     log_2,
                     "Syncing";
+                    "speed" => sync_rate_pretty(slots_since_last_update, interval_duration.as_secs()),
                     "distance" => distance
                 );
 
                 return Ok(());
             };
 
-            macro_rules! synced_log {
+            macro_rules! not_quite_synced_log {
                 ($message: expr) => {
                     info!(
                         log_2,
                         $message;
                         "finalized_root" => format!("{}", finalized_root),
                         "finalized_epoch" => finalized_epoch,
-                        "best_slot" => best_slot,
+                        "head_slot" => head_slot,
                         "current_slot" => current_slot,
                     );
                 }
             }
 
-            if best_epoch + 1 == current_epoch {
-                synced_log!("Synced to previous epoch")
-            } else if best_slot != current_slot {
-                synced_log!("Synced to current epoch")
+            if head_epoch + 1 == current_epoch {
+                not_quite_synced_log!("Synced to previous epoch")
+            } else if head_slot != current_slot {
+                not_quite_synced_log!("Synced to current epoch")
             } else {
-                synced_log!("Synced")
+                info!(
+                    log_2,
+                    "Synced";
+                    "finalized_root" => format!("{}", finalized_root),
+                    "finalized_epoch" => finalized_epoch,
+                    "epoch" => current_epoch,
+                    "slot" => current_slot,
+                );
             };
 
             Ok(())
@@ -116,6 +133,21 @@ pub fn spawn_slot_notifier<T: BeaconChainTypes>(
         .spawn(exit.until(interval_future).map(|_| ()));
 
     Ok(exit_signal)
+}
+
+fn sync_rate_pretty(slots_since_last_update: Slot, update_interval_secs: u64) -> String {
+    if update_interval_secs == 0 {
+        return "Error".into();
+    }
+
+    if slots_since_last_update == 0 {
+        "No progress".into()
+    } else {
+        format!(
+            "{} slots/sec",
+            slots_since_last_update / update_interval_secs
+        )
+    }
 }
 
 fn slot_distance_pretty(slot_span: Slot, slot_duration: Duration) -> String {
