@@ -188,6 +188,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("http://localhost:8545")
         )
+        .arg(
+            Arg::with_name("slots-per-restore-point")
+                .long("slots-per-restore-point")
+                .value_name("SLOT_COUNT")
+                .help("Specifies how often a freezer DB restore point should be stored.")
+                .takes_value(true)
+        )
         /*
          * The "testnet" sub-command.
          *
