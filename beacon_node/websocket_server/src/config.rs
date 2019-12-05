@@ -14,7 +14,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            enabled: false,
+            enabled: true,
             listen_address: Ipv4Addr::new(127, 0, 0, 1),
             port: 5053,
         }
