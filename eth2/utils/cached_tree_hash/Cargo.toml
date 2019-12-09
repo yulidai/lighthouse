@@ -5,12 +5,12 @@ authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
-ethereum-types = "0.8"
+ethereum-types = "0.8.0"
 eth2_ssz_types = { path = "../ssz_types" }
-eth2_hashing = "0.1"
-eth2_ssz_derive = "0.1.0"
-eth2_ssz = "0.1.2"
-tree_hash = "0.1"
+eth2_hashing = { path = "../eth2_hashing" }
+eth2_ssz_derive = { path = "../ssz_derive" }
+eth2_ssz = { path = "../ssz" }
+tree_hash = { path = "../tree_hash" }
 
 [dev-dependencies]
 quickcheck = "0.9"

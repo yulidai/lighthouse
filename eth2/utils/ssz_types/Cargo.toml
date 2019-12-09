@@ -8,11 +8,11 @@ edition = "2018"
 name = "ssz_types"
 
 [dependencies]
-tree_hash = "0.1.0"
+tree_hash = { path = "../tree_hash" }
 serde = "1.0.102"
 serde_derive = "1.0.102"
 serde_hex = { path = "../serde_hex" }
-eth2_ssz = "0.1.2"
+eth2_ssz = { path = "../ssz" }
 typenum = "1.11.2"
 
 [dev-dependencies]
